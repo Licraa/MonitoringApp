@@ -23,6 +23,7 @@ namespace MachineMonitoringApp.Forms
         public MainForm()
         {
             InitializeComponent();
+
             this.Text = "Machine Monitoring Dashboard";
 
             // 🚨 1. AKTIVASI DOUBLE BUFFERING (Penting untuk mengatasi BLINKING)
@@ -71,8 +72,11 @@ namespace MachineMonitoringApp.Forms
         private void InitializeUpdateTimer()
         {
             _uiUpdateTimer = new System.Windows.Forms.Timer();
-            _uiUpdateTimer.Interval = 500; // Update UI setiap 0.5 detik (Real-Time Speed)
-            _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
+            _uiUpdateTimer.Interval = 1000; // Update every second
+            _uiUpdateTimer.Tick += (s, e) =>
+            {
+                footerLabel.Text = DateTime.Now.ToString("dddd, MMMU dd, yyyy HH:mm:ss");
+            };
             _uiUpdateTimer.Start();
         }
 
@@ -171,32 +175,13 @@ namespace MachineMonitoringApp.Forms
 
         private void RenderDashboard(Dictionary<string, LineSummary> data)
         {
-            flowLayoutPanel1.SuspendLayout();
+            flowLayoutPanel1.Controls.Clear();
 
             foreach (var entry in data)
             {
                 var line = entry.Value;
-                // Cari apakah card sudah ada (menggunakan Text/Nama Line sebagai ID unik)
-                Panel existingCard = flowLayoutPanel1.Controls.OfType<Panel>()
-                                            .FirstOrDefault(c => c.Text == line.LineName);
-
-                if (existingCard != null)
-                {
-                    // 🚨 UPDATE IN-PLACE: HANYA UPDATE NILAI LABEL
-                    if (existingCard.Tag is Label statusLabel)
-                    {
-                        // Update teks label status
-                        statusLabel.Text = $"Active: {line.Active}\nInactive: {line.Inactive}\nTotal: {line.Total}";
-                    }
-                    // Anda bisa menambahkan logika pewarnaan ulang di sini jika status berubah
-                }
-                else
-                {
-                    // CARD BARU: Buat dan tambahkan (hanya terjadi satu kali di awal)
-                    var card = CreateLineCard(line);
-                    card.Text = line.LineName; // Penting: Set Text untuk pencarian
-                    flowLayoutPanel1.Controls.Add(card);
-                }
+                var card = CreateLineCard(line); // Create a card for each item
+                flowLayoutPanel1.Controls.Add(card); // Add the card to flowLayoutPanel1
             }
 
             flowLayoutPanel1.ResumeLayout();
@@ -204,63 +189,116 @@ namespace MachineMonitoringApp.Forms
 
         private Panel CreateLineCard(LineSummary line)
         {
-            // ... (setup card, title, status) ...
+            // ========================================
+            // === 1. KARTU UTAMA (CARD) ===
+            // ========================================
             var card = new Panel
             {
-                Width = 300,
-                Height = 220,
-                BackColor = Color.FromArgb(238, 238, 238),
-                BorderStyle = BorderStyle.FixedSingle,
-                Margin = new Padding(15),
-                Cursor = Cursors.Hand
+                Width = 350,  // Ukuran kartu yang lebih wajar
+                Height = 450, // Tinggi kartu
+                BackColor = Color.White,
+                BorderStyle = BorderStyle.None, // Menghilangkan border kuno
+                Margin = new Padding(15),       // Jarak antar kartu
+                Padding = new Padding(10)       // Jarak dalam kartu
             };
+            // Tambahkan event handler sederhana untuk efek "hover"
+            card.MouseEnter += (s, e) => { card.BackColor = Color.FromArgb(248, 249, 250); };
+            card.MouseLeave += (s, e) => { card.BackColor = Color.White; };
 
+            // ========================================
+            // === 2. JUDUL KARTU (TITLE) ===
+            // ========================================
             var title = new Label
             {
-                Text = line.LineName,
+                Text = line.LineName ?? "NULL",
                 Dock = DockStyle.Top,
                 Font = new Font("Segoe UI", 16, FontStyle.Bold),
-                ForeColor = Color.FromArgb(33, 33, 33),
+                ForeColor = Color.FromArgb(44, 62, 80), // Warna Dark Slate
                 Height = 50,
-                TextAlign = ContentAlignment.MiddleCenter,
-                Cursor = Cursors.Hand
+                TextAlign = ContentAlignment.MiddleCenter
             };
 
-            var status = new Label
+            // ========================================
+            // === 3. PANEL STATUS (CONNECTED/NOT CONNECTED) ===
+            // ========================================
+            var statusPanel = new Panel
             {
+                Dock = DockStyle.Top,
+                Height = 60,
+                Padding = new Padding(5)
+            };
+
+            var connectedLabel = new Label
+            {
+                Text = $"{line.Active}\nConnected",
+                ForeColor = Color.White,
+                BackColor = Color.FromArgb(39, 174, 96), // Warna Hijau "Flat"
+                Font = new Font("Segoe UI", 11, FontStyle.Bold),
+                Dock = DockStyle.Left,
+                Width = (card.Width - card.Padding.Horizontal - statusPanel.Padding.Horizontal - 10) / 2, // Setengah lebar
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+
+            var notConnectedLabel = new Label
+            {
+                Text = $"{line.Inactive}\nNot Connected",
+                ForeColor = Color.White,
+                BackColor = Color.FromArgb(231, 76, 60), // Warna Merah "Flat"
+                Font = new Font("Segoe UI", 11, FontStyle.Bold),
+                Dock = DockStyle.Right,
+                Width = (card.Width - card.Padding.Horizontal - statusPanel.Padding.Horizontal - 10) / 2, // Setengah lebar
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+
+            // Panel pemisah kecil (opsional)
+            var separator = new Panel { Dock = DockStyle.Left, Width = 10, BackColor = Color.White };
+
+            statusPanel.Controls.Add(connectedLabel);
+            statusPanel.Controls.Add(separator);
+            statusPanel.Controls.Add(notConnectedLabel);
+
+
+            // ========================================
+            // === 4. LABEL STATISTIK UTAMA ===
+            // ========================================
+            // Menggunakan string yang sama dari kode Anda
+            var statsText = $"COUNT\n{line.Count}\n\n" +
+                            $"CYCLE\n{line.Cycle}s\n\n" +
+                            $"PART/HR\n{line.PartPerHour}\n\n" +
+                            $"AVG CYCLE\n{line.AvgCycle}s\n\n" +
+                            $"DOWNTIME\n{line.Downtime} ({line.DowntimePercentage}%)\n\n" +
+                            $"UPTIME\n{line.Uptime} ({line.UptimePercentage}%)";
+
+            var statsLabel = new Label
+            {
+                Text = statsText,
+                Font = new Font("Segoe UI", 11, FontStyle.Regular), // Font Regular untuk data
+                ForeColor = Color.FromArgb(82, 82, 82), // Abu-abu gelap (bukan hitam)
+                TextAlign = ContentAlignment.MiddleCenter,
                 Dock = DockStyle.Fill,
-                Text = $"Active: {line.Active}\nInactive: {line.Inactive}\nTotal: {line.Total}",
-                TextAlign = ContentAlignment.MiddleCenter,
-                Font = new Font("Segoe UI", 13, FontStyle.Regular),
-                ForeColor = Color.FromArgb(55, 55, 55),
-                Cursor = Cursors.Hand
+                Padding = new Padding(10)
             };
 
-            // 🚨 SIMPAN REFERENCE LABEL DI TAG UNTUK UPDATE REAL-TIME
-            card.Tag = status;
-
-            // LOGIKA KLIK CARD
-            EventHandler cardClickHandler = (s, e) =>
+            // ========================================
+            // === 5. TOTAL LABEL (FOOTER KARTU) ===
+            // ========================================
+            var totalLabel = new Label
             {
-                var detailMachines = _allMachineData.Where(m => m.line_production == line.LineName).ToList();
-
-                try
-                {
-                    var detailForm = new DetailForm(line, detailMachines);
-                    detailForm.ShowDialog();
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Gagal membuka Detail Form: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
+                Text = $"{line.Total} Total Machine",
+                Dock = DockStyle.Bottom,
+                Font = new Font("Segoe UI", 12, FontStyle.Bold),
+                ForeColor = Color.FromArgb(52, 73, 94),
+                Height = 40,
+                TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = Color.FromArgb(241, 243, 244) // Footer kartu yang senada
             };
 
-            // Lampirkan handler ke SEMUA kontrol (Fix Masalah Klik)
-            card.Click += cardClickHandler;
-            title.Click += cardClickHandler;
-            status.Click += cardClickHandler;
-
-            card.Controls.Add(status);
+            // ========================================
+            // === 6. SUSUN KONTROL PADA KARTU ===
+            // ========================================
+            card.Controls.Add(statsLabel);      // Diisi dulu (Dock.Fill)
+            card.Controls.Add(totalLabel);
+            card.Controls.Add(statusPanel);
             card.Controls.Add(title);
 
             return card;

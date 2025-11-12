@@ -33,3 +33,4 @@ C:\Users\putra\Documents\CCI\MachineMonitoringApp\obj\Debug\net9.0-windows\refin
 C:\Users\putra\Documents\CCI\MachineMonitoringApp\obj\Debug\net9.0-windows\MachineMonitoringApp.pdb
 C:\Users\putra\Documents\CCI\MachineMonitoringApp\obj\Debug\net9.0-windows\MachineMonitoringApp.genruntimeconfig.cache
 C:\Users\putra\Documents\CCI\MachineMonitoringApp\obj\Debug\net9.0-windows\ref\MachineMonitoringApp.dll
+C:\Users\putra\Documents\CCI\MachineMonitoringApp\obj\Debug\net9.0-windows\MachineMonitoringApp.sourcelink.json
