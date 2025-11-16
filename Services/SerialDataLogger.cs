@@ -43,9 +43,9 @@ namespace MachineMonitoringApp.Services
                 // Membaca satu baris penuh
                 string rawData = _serialPort.ReadLine();
                 // Memicu event agar MainForm dapat memproses data
-                DataReceived?.Invoke(rawData);
+                DataReceived?.Invoke(rawData); 
             }
-            catch (TimeoutException)
+            catch (TimeoutException) 
             {
                 // Abaikan TimeoutException. Ini normal saat buffer kosong.
                 Debug.WriteLine("Error reading from serial port: The operation has timed out.");

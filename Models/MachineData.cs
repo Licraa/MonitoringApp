@@ -14,9 +14,9 @@ namespace MachineMonitoringApp.Models
         public string remark { get; set; } = "-";
 
         // === Data Utama (10 Item Serial Port) ===
-        public string parthours { get; set; } = "0";
-        public string durasiTerakhirA4 { get; set; } = "0";
-        public string ratarataTerakhirA4 { get; set; } = "0";
+        public string parthours { get; set; } = "0"; 
+        public string durasiTerakhirA4 { get; set; } = "0"; 
+        public string ratarataTerakhirA4 { get; set; } = "0"; 
         public string nilaiTerakhirA2 { get; set; } = "0"; // Total Count
         public string dataCh1 { get; set; } = "00:00:00"; // Total Downtime Time
         public string uptime { get; set; } = "00:00:00";  // Total Uptime Time
@@ -25,7 +25,7 @@ namespace MachineMonitoringApp.Models
 
         // === Data Shift (untuk Detail Card) - Diisi dari API/DB, tidak dari serial port 10 item ===
         // Shift 1st
-        public string s1_nilaiTerakhirA2 { get; set; } = "0";
+        public string s1_nilaiTerakhirA2 { get; set; } = "0"; 
         public string s1_dataCh1 { get; set; } = "00:00:00";
         public string s1_p_datach1 { get; set; } = "0";
         public string s1_uptime { get; set; } = "00:00:00";

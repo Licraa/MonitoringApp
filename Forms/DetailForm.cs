@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
 using MachineMonitoringApp.Models;
+using Guna.UI2.WinForms;
 
 namespace MachineMonitoringApp.Forms
 {
@@ -15,42 +16,26 @@ namespace MachineMonitoringApp.Forms
         public DetailForm(LineSummary summary, List<MachineData> machines)
         {
             InitializeComponent();
+
             _lineSummary = summary;
             _machines = machines;
 
-            // 🔹 Setting tampilan full layar
+            // ensure the detail window opens maximized
             this.Text = $"Detail Line - {_lineSummary.LineName}";
             this.WindowState = FormWindowState.Maximized;
-            this.FormBorderStyle = FormBorderStyle.Sizable;
-            this.BackColor = Color.WhiteSmoke;
-            this.Padding = new Padding(15);
 
-            SetupLayout();
+            // _layout is created in InitializeComponent (designer); move padding to the layout
+            if (_layout != null)
+                _layout.Padding = new Padding(100,0,0,0);
+
+            // render cards into the designer-provided layout
             RenderMachineCards();
         }
 
         private void SetupLayout()
         {
-            _layout = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 3,
-                RowCount = 2,
-                BackColor = Color.WhiteSmoke,
-                AutoScroll = true,
-                Padding = new Padding(10),
-            };
-
-            // 🔹 Set ukuran kolom & baris
-            for (int i = 0; i < 3; i++)
-            {
-                _layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
-                _layout.RowStyles.Add(new RowStyle(SizeType.Percent, 33.33f));
-            }
-
-            // 🔹 Tambahkan ke Form
-            this.Controls.Clear();
-            this.Controls.Add(_layout);
+            // SetupLayout is now handled by the designer (DetailForm.Designer.cs).
+            // This method is kept for backward compatibility but intentionally left empty.
         }
 
         private void RenderMachineCards()
@@ -73,10 +58,16 @@ namespace MachineMonitoringApp.Forms
                 return;
             }
 
-            int totalCards = Math.Min(_machines.Count, 9); // Maks 9 mesin (3x3)
+            // Deduplicate machines by id in case the source list contains duplicates
+            var machinesToShow = _machines
+                .GroupBy(m => m.id)
+                .Select(g => g.First())
+                .ToList();
+
+            int totalCards = Math.Min(machinesToShow.Count, 6); // Maks 6 kartu (3x2)
             for (int i = 0; i < totalCards; i++)
             {
-                var machine = _machines[i];
+                var machine = machinesToShow[i];
                 var card = CreateMachineCard(machine);
                 _layout.Controls.Add(card, i % 3, i / 3);
             }
@@ -84,68 +75,148 @@ namespace MachineMonitoringApp.Forms
             _layout.ResumeLayout();
         }
 
-        private Panel CreateMachineCard(MachineData m)
+        private Control CreateMachineCard(MachineData m)
         {
-            var card = new Panel
+            // Use Guna2Panel for nicer visuals
+            var card = new Guna2Panel
             {
-                Margin = new Padding(10),
-                Dock = DockStyle.Fill,
-                BackColor = Color.White,
-                BorderStyle = BorderStyle.FixedSingle
+                Margin = new Padding(12),
+                Size = new Size(360, 420),
+                BackColor = Color.Transparent,
+                // keep card background white and use a separate header panel for the red header
+                FillColor = Color.White,
+                BorderRadius = 8,
+                ShadowDecoration = { Enabled = true, Depth = 8 },
+                BorderColor = Color.FromArgb(230, 200, 200),
+                BorderThickness = 1,
+                // Padding = new Padding(10,0,0,0)
             };
 
-            // Judul mesin
+            // Header (top bar with machine name) - use Guna2Panel so corners blend nicely
+            var header = new Guna2Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 55,
+                FillColor = Color.FromArgb(180, 50, 50),
+                BorderRadius = 8,
+                ShadowDecoration = { Enabled = false },
+                Padding = new Padding(8)
+            };
             var lblTitle = new Label
             {
-                Text = $"{m.name}",
-                Dock = DockStyle.Top,
-                Font = new Font("Segoe UI", 14, FontStyle.Bold),
-                Height = 45,
+                Text = m.name,
+                Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleCenter,
-                ForeColor = Color.White,
-                BackColor = Color.FromArgb(52, 152, 219)
+                Font = new Font("Segoe UI Semibold", 14, FontStyle.Bold),
+                ForeColor = Color.Black
             };
+            header.Controls.Add(lblTitle);
 
-            // === Detail tabel (gunakan TableLayout di dalam card) ===
-            var tbl = new TableLayoutPanel
+            // Main inner white panel (content area)
+            var inner = new Guna2Panel
             {
                 Dock = DockStyle.Fill,
-                ColumnCount = 2,
-                RowCount = 6,
-                Padding = new Padding(10),
-                BackColor = Color.White
+                FillColor = Color.FromArgb(255, 249, 249),
+                BorderRadius = 6,
+                Margin = new Padding(10),
+                // increase top padding so the inner content sits clearly below the header
+                Padding = new Padding(8, 24, 8, 8),
+                BorderColor = Color.FromArgb(220, 180, 180),
+                BorderThickness = 1
             };
 
-            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45));
-            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55));
+            // Top info table: LINE | PROCESS | LAST UPDATE
+            var topInfo = new TableLayoutPanel { Dock = DockStyle.Top, Height = 64, ColumnCount = 3, RowCount = 1, BackColor = Color.Transparent , Padding = new Padding(0,5,0,0)};
+            topInfo.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33));
+            topInfo.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33));
+            topInfo.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34));
 
-            AddRow(tbl, "Line", m.line_production);
-            AddRow(tbl, "Part Hours", m.parthours);
-            AddRow(tbl, "Uptime", m.uptime);
-            AddRow(tbl, "Downtime", m.durasiTerakhirA4);
-            AddRow(tbl, "Average", m.ratarataTerakhirA4);
-            AddRow(tbl, "Updated", m.LastUpdated.ToString("HH:mm:ss"));
+            var lblLine = new Label { Text = "LINE", Font = new Font("Segoe UI", 8, FontStyle.Bold), TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill };
+            var lblProcess = new Label { Text = "PROCESS", Font = new Font("Segoe UI", 8, FontStyle.Bold), TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill };
+            var lblUpdate = new Label { Text = "LAST UPDATE", Font = new Font("Segoe UI", 8, FontStyle.Bold), TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill };
 
-            // Footer status
-            var lblStatus = new Label
+            var valLine = new Label { Text = m.line_production ?? "-", Font = new Font("Segoe UI", 10, FontStyle.Bold), TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill, BackColor = Color.Transparent };
+            var valProcess = new Label { Text = "Packing", Font = new Font("Segoe UI", 10, FontStyle.Regular), TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill, BackColor = Color.Transparent };
+            var valUpdate = new Label { Text = m.LastUpdated.ToString("yyyy-MM-dd HH:mm:ss"), Font = new Font("Segoe UI", 9, FontStyle.Regular), TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill, BackColor = Color.Transparent };
+
+            var topHeaderTbl = new TableLayoutPanel { Dock = DockStyle.Top, Height = 28, ColumnCount = 3 };
+            topHeaderTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33));
+            topHeaderTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33));
+            topHeaderTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34));
+            topHeaderTbl.Controls.Add(lblLine, 0, 0);
+            topHeaderTbl.Controls.Add(lblProcess, 1, 0);
+            topHeaderTbl.Controls.Add(lblUpdate, 2, 0);
+            topHeaderTbl.Margin = new Padding(0, 6, 0, 0);
+
+            var topValueTbl = new TableLayoutPanel { Dock = DockStyle.Top, Height = 28, ColumnCount = 3, Padding = new Padding(2) };
+            topValueTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33));
+            topValueTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33));
+            topValueTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34));
+            topValueTbl.Controls.Add(valLine, 0, 0);
+            topValueTbl.Controls.Add(valProcess, 1, 0);
+            topValueTbl.Controls.Add(valUpdate, 2, 0);
+
+            // Metrics area: PART/HR | CYCLE | AVG CYCLE (simple horizontal box)
+            var metricsBox = new Panel { Dock = DockStyle.Top, Height = 56, BackColor = Color.FromArgb(255, 240, 240), Padding = new Padding(6), Margin = new Padding(0,8,0,8) };
+            var metricsTbl = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 2 };
+            metricsTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33));
+            metricsTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33));
+            metricsTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34));
+            metricsTbl.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+            metricsTbl.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+
+            metricsTbl.Controls.Add(new Label { Text = "PART/HR", TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 8, FontStyle.Bold) }, 0, 0);
+            metricsTbl.Controls.Add(new Label { Text = "CYCLE", TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 8, FontStyle.Bold) }, 1, 0);
+            metricsTbl.Controls.Add(new Label { Text = "AVG CYCLE", TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 8, FontStyle.Bold) }, 2, 0);
+
+            metricsTbl.Controls.Add(new Label { Text = m.parthours ?? "0", TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill, Font = new Font("Consolas", 14, FontStyle.Bold) }, 0, 1);
+            metricsTbl.Controls.Add(new Label { Text = m.nilaiTerakhirA2 ?? "0 s", TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill, Font = new Font("Consolas", 14, FontStyle.Bold) }, 1, 1);
+            metricsTbl.Controls.Add(new Label { Text = m.ratarataTerakhirA4 ?? "0 s", TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill, Font = new Font("Consolas", 14, FontStyle.Bold) }, 2, 1);
+
+            metricsBox.Controls.Add(metricsTbl);
+
+            // Shift rows: create 3 compact horizontal tables
+            Control CreateShiftRow(string shiftName)
             {
-                Dock = DockStyle.Bottom,
-                Height = 35,
-                TextAlign = ContentAlignment.MiddleCenter,
-                Font = new Font("Segoe UI", 11, FontStyle.Bold),
-                ForeColor = Color.White,
-                Text = m.nilaiA0 == 1 ? "ACTIVE" : "INACTIVE",
-                BackColor = m.nilaiA0 == 1 ? Color.SeaGreen : Color.IndianRed
-            };
+                var panel = new Panel { Dock = DockStyle.Top, Height = 65, BackColor = Color.FromArgb(255, 249, 249), Padding = new Padding(0,11,0,0) };
+                var tbl = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 2 };
+                tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20));
+                tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30));
+                tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
+                tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
+                // header row
+                tbl.Controls.Add(new Label { Text = "SHIFT", Font = new Font("Segoe UI", 8, FontStyle.Bold), TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill }, 0, 0);
+                tbl.Controls.Add(new Label { Text = "COUNT", Font = new Font("Segoe UI", 8, FontStyle.Bold), TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill }, 1, 0);
+                tbl.Controls.Add(new Label { Text = "DOWNTIME", Font = new Font("Segoe UI", 8, FontStyle.Bold), TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill }, 2, 0);
+                tbl.Controls.Add(new Label { Text = "UPTIME", Font = new Font("Segoe UI", 8, FontStyle.Bold), TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill }, 3, 0);
+                // value row
+                tbl.Controls.Add(new Label { Text = shiftName, Font = new Font("Segoe UI", 9, FontStyle.Bold), TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill }, 0, 1);
+                tbl.Controls.Add(new Label { Text = "0", Font = new Font("Consolas", 12, FontStyle.Bold), TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill }, 1, 1);
+                tbl.Controls.Add(new Label { Text = "00:00:00\n0%", Font = new Font("Segoe UI", 9, FontStyle.Regular), TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill }, 2, 1);
+                tbl.Controls.Add(new Label { Text = "00:00:00\n0%", Font = new Font("Segoe UI", 9, FontStyle.Regular), TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill }, 3, 1);
+                panel.Controls.Add(tbl);
+                return panel;
+            }
 
-            // Urutan penempatan
-            card.Controls.Add(tbl);
-            card.Controls.Add(lblStatus);
-            card.Controls.Add(lblTitle);
+            // remark at bottom
+            var remarkPanel = new Panel { Dock = DockStyle.Bottom, Height = 36, BackColor = Color.Transparent };
+            var lblRemark = new Label { Text = "** Remark :", Dock = DockStyle.Left, Font = new Font("Segoe UI", 9, FontStyle.Bold), ForeColor = Color.FromArgb(100, 20, 20), Width = 120 };
+            var lblRemarkVal = new Label { Text = "-", Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9, FontStyle.Regular), ForeColor = Color.FromArgb(60, 60, 60) };
+            remarkPanel.Controls.Add(lblRemarkVal);
+            remarkPanel.Controls.Add(lblRemark);
 
-            // Efek hover
-            card.MouseEnter += (s, e) => card.BackColor = Color.FromArgb(245, 245, 245);
-            card.MouseLeave += (s, e) => card.BackColor = Color.White;
+            // assemble content in inner panel
+            inner.Controls.Add(remarkPanel);
+            inner.Controls.Add(CreateShiftRow("3rd"));
+            inner.Controls.Add(CreateShiftRow("2nd"));
+            inner.Controls.Add(CreateShiftRow("1st"));
+            inner.Controls.Add(metricsBox);
+            inner.Controls.Add(topValueTbl);
+            inner.Controls.Add(topHeaderTbl);
+
+            // add header first, then inner (inner Dock=Fill will sit below header automatically)
+            card.Controls.Add(header);
+            card.Controls.Add(inner);
 
             return card;
         }

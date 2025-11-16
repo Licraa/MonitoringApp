@@ -1,151 +1,120 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Windows.Forms;
 using System.Linq;
 using System.Reflection;
+using System.Windows.Forms;
+using Guna.UI2.WinForms;
 using MachineMonitoringApp.Models;
 using MachineMonitoringApp.Services;
 using MachineMonitoringApp.Utils;
+using WinTimer = System.Windows.Forms.Timer;
 
 namespace MachineMonitoringApp.Forms
 {
-    // Asumsi: Kontrol utama Anda di Designer bernama flowLayoutPanel1
     public partial class MainForm : Form
     {
-        // === PROPERTI UTAMA ===
         private SerialDataLogger _dataLogger;
-        private System.Windows.Forms.Timer _uiUpdateTimer;
+        private WinTimer _uiUpdateTimer;
         private List<MachineData> _allMachineData = new List<MachineData>();
-
-        // Asumsi: flowLayoutPanel1 adalah FlowLayoutPanel di designer Anda
 
         public MainForm()
         {
             InitializeComponent();
 
-            this.Text = "Machine Monitoring Dashboard";
-
-            // 🚨 1. AKTIVASI DOUBLE BUFFERING (Penting untuk mengatasi BLINKING)
-            this.SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
-            // Mengatur Double Buffering pada FlowLayoutPanel secara Reflection
-            if (flowLayoutPanel1 != null)
-            {
-                flowLayoutPanel1.GetType().GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic)?.SetValue(flowLayoutPanel1, true, null);
-            }
-
-            // 2. Setup Data dan Logger
             _allMachineData = GetInitialMachineData();
             InitializeLogger();
-
-            // 3. Setup Timer untuk update Dashboard
             InitializeUpdateTimer();
+            // subscribe to layout event so we can center each row of cards
+            this.flowLayoutPanel1.Layout += FlowLayoutPanel1_Layout;
 
-            // 4. Render awal (Ini akan membuat card pertama kali)
             RenderDashboard(GenerateSummary(_allMachineData));
         }
 
-        // --------------------------------------------------------------------------
-        // === LOGIKA REAL-TIME SERIAL PORT ===
-        // --------------------------------------------------------------------------
-
+        // ========== SERIAL LOGGER ==========
         private void InitializeLogger()
         {
             const string portToUse = "COM4";
             const int baudRate = 115200;
-
             try
             {
                 _dataLogger = new SerialDataLogger(portToUse, baudRate);
                 _dataLogger.DataReceived += DataLogger_DataReceived;
                 _dataLogger.Open();
-                System.Diagnostics.Debug.WriteLine($"Berhasil membuka port: {portToUse} @ {baudRate}");
+                System.Diagnostics.Debug.WriteLine($"Connected to {portToUse}");
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Koneksi Serial Gagal. Pastikan perangkat terpasang di {portToUse}. Error: {ex.Message}",
-                                "Error Koneksi Serial", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                _dataLogger = null;
+                MessageBox.Show($"Gagal membuka port {portToUse}: {ex.Message}");
             }
         }
 
+        // ========== TIMER ==========
         private void InitializeUpdateTimer()
         {
-            _uiUpdateTimer = new System.Windows.Forms.Timer();
-            _uiUpdateTimer.Interval = 1000; // Update every second
-            _uiUpdateTimer.Tick += (s, e) =>
-            {
-                footerLabel.Text = DateTime.Now.ToString("dddd, MMMU dd, yyyy HH:mm:ss");
-            };
+            _uiUpdateTimer = new WinTimer();
+            _uiUpdateTimer.Interval = 500;
+            _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
             _uiUpdateTimer.Start();
         }
 
         private void UiUpdateTimer_Tick(object sender, EventArgs e)
         {
-            // 🚨 JANTUNG REAL-TIME: Memastikan UI di-update secara berkala dan stabil
+            lblTime.Text = DateTime.Now.ToString("ddd, dd MMM yyyy HH:mm:ss");
             RenderDashboard(GenerateSummary(_allMachineData));
         }
 
+        // ========== DATA SERIAL ==========
         private void DataLogger_DataReceived(string rawData)
         {
-            // Wajib menggunakan Invoke untuk memproses data di thread UI (Thread Safety)
-            if (this.InvokeRequired)
-            {
-                this.Invoke(new Action(() => ProcessDataForUI(rawData)));
-            }
+            if (InvokeRequired)
+                Invoke(new Action(() => ProcessDataForUI(rawData)));
             else
-            {
                 ProcessDataForUI(rawData);
-            }
         }
 
         private void ProcessDataForUI(string rawData)
         {
-            // Logika parsing 10 item data serial
-            if (rawData.Length < 10 || rawData.Trim().Equals("Reset", StringComparison.OrdinalIgnoreCase))
-            {
+            if (string.IsNullOrWhiteSpace(rawData) || rawData.Length < 10 || rawData.Trim().Equals("Reset", StringComparison.OrdinalIgnoreCase))
                 return;
-            }
 
-            var parts = rawData.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
-                               .Select(p => p.Trim())
-                               .ToList();
-
+            var parts = rawData.Split(',').Select(p => p.Trim()).ToList();
             if (parts.Count < 10) return;
 
-            MachineData updatedMachine = ParseMachineGroup(parts.Take(10).ToList());
+            var updatedMachine = ParseMachineGroup(parts.Take(10).ToList());
+            if (updatedMachine == null) return;
 
-            if (updatedMachine != null)
+            var existing = _allMachineData.FirstOrDefault(m => m.id == updatedMachine.id);
+            if (existing != null)
             {
-                var existingMachine = _allMachineData.FirstOrDefault(m => m.id == updatedMachine.id);
+                existing.nilaiA0 = updatedMachine.nilaiA0;
+                existing.parthours = updatedMachine.parthours;
+                existing.nilaiTerakhirA2 = updatedMachine.nilaiTerakhirA2;
+                existing.durasiTerakhirA4 = updatedMachine.durasiTerakhirA4;
+                existing.ratarataTerakhirA4 = updatedMachine.ratarataTerakhirA4;
+                existing.dataCh1 = updatedMachine.dataCh1;
+                existing.uptime = updatedMachine.uptime;
+                existing.p_datach1 = updatedMachine.p_datach1;
+                existing.p_uptime = updatedMachine.p_uptime;
+                existing.LastUpdated = DateTime.Now;
 
-                if (existingMachine != null)
-                {
-                    // Update data yang datang dari Serial Port (10 item)
-                    existingMachine.nilaiA0 = updatedMachine.nilaiA0;
-                    existingMachine.parthours = updatedMachine.parthours;
-                    existingMachine.nilaiTerakhirA2 = updatedMachine.nilaiTerakhirA2;
-                    existingMachine.durasiTerakhirA4 = updatedMachine.durasiTerakhirA4;
-                    existingMachine.ratarataTerakhirA4 = updatedMachine.ratarataTerakhirA4;
-                    existingMachine.dataCh1 = updatedMachine.dataCh1;
-                    existingMachine.uptime = updatedMachine.uptime;
-                    existingMachine.p_datach1 = updatedMachine.p_datach1;
-                    existingMachine.p_uptime = updatedMachine.p_uptime;
-                    existingMachine.LastUpdated = DateTime.Now;
-                }
+                // push ke database (silent on failure)
+                try { DatabaseService.InsertSerialData(existing, rawData); } catch { }
+            }
+            else
+            {
+                // baru: tambahkan ke list dan simpan juga ke DB
+                _allMachineData.Add(updatedMachine);
+                try { DatabaseService.InsertSerialData(updatedMachine, rawData); } catch { }
             }
         }
 
         private MachineData ParseMachineGroup(List<string> parts)
         {
-            // ... (Kode parsing tetap sama, menggunakan MachineMapper) ...
-            if (parts.Count < 10) return null;
-
             try
             {
                 int id = int.Parse(parts[0]);
                 var identity = MachineMapper.GetIdentityById(id);
-
                 if (identity == null) return null;
 
                 return new MachineData
@@ -153,7 +122,6 @@ namespace MachineMonitoringApp.Forms
                     id = id,
                     name = identity.Name,
                     line_production = identity.Line,
-
                     nilaiA0 = int.Parse(parts[1]),
                     nilaiTerakhirA2 = parts[2],
                     durasiTerakhirA4 = parts[3],
@@ -169,144 +137,44 @@ namespace MachineMonitoringApp.Forms
             catch { return null; }
         }
 
-        // --------------------------------------------------------------------------
-        // === LOGIKA RENDERING & KLIK CARD (Real-Time Optimized) ===
-        // --------------------------------------------------------------------------
-
+        // ========== RENDER DASHBOARD ==========
         private void RenderDashboard(Dictionary<string, LineSummary> data)
         {
-            flowLayoutPanel1.Controls.Clear();
-
+            flowLayoutPanel1.SuspendLayout();
             foreach (var entry in data)
             {
                 var line = entry.Value;
-                var card = CreateLineCard(line); // Create a card for each item
-                flowLayoutPanel1.Controls.Add(card); // Add the card to flowLayoutPanel1
-            }
+                var existingCard = flowLayoutPanel1.Controls.OfType<LineCardControl>()
+                    .FirstOrDefault(c => c.LineName == line.LineName);
 
+                if (existingCard != null)
+                {
+                    existingCard.SetSummary(line);
+                }
+                else
+                {
+                    var card = CreateLineCard(line);
+                    card.Tag = line.LineName;
+                    flowLayoutPanel1.Controls.Add(card);
+                }
+            }
             flowLayoutPanel1.ResumeLayout();
         }
 
-        private Panel CreateLineCard(LineSummary line)
+        private LineCardControl CreateLineCard(LineSummary line)
         {
-            // ========================================
-            // === 1. KARTU UTAMA (CARD) ===
-            // ========================================
-            var card = new Panel
-            {
-                Width = 350,  // Ukuran kartu yang lebih wajar
-                Height = 450, // Tinggi kartu
-                BackColor = Color.White,
-                BorderStyle = BorderStyle.None, // Menghilangkan border kuno
-                Margin = new Padding(15),       // Jarak antar kartu
-                Padding = new Padding(10)       // Jarak dalam kartu
-            };
-            // Tambahkan event handler sederhana untuk efek "hover"
-            card.MouseEnter += (s, e) => { card.BackColor = Color.FromArgb(248, 249, 250); };
-            card.MouseLeave += (s, e) => { card.BackColor = Color.White; };
+            var control = new LineCardControl();
+            control.SetSummary(line);
 
-            // ========================================
-            // === 2. JUDUL KARTU (TITLE) ===
-            // ========================================
-            var title = new Label
+            // When card clicked, show details (subscribe to CardClicked for explicit card events)
+            control.CardClicked += (s, e) =>
             {
-                Text = line.LineName ?? "NULL",
-                Dock = DockStyle.Top,
-                Font = new Font("Segoe UI", 16, FontStyle.Bold),
-                ForeColor = Color.FromArgb(44, 62, 80), // Warna Dark Slate
-                Height = 50,
-                TextAlign = ContentAlignment.MiddleCenter
+                var detail = _allMachineData.Where(m => m.line_production == e.LineName).ToList();
+                new DetailForm(line, detail).ShowDialog();
             };
 
-            // ========================================
-            // === 3. PANEL STATUS (CONNECTED/NOT CONNECTED) ===
-            // ========================================
-            var statusPanel = new Panel
-            {
-                Dock = DockStyle.Top,
-                Height = 60,
-                Padding = new Padding(5)
-            };
-
-            var connectedLabel = new Label
-            {
-                Text = $"{line.Active}\nConnected",
-                ForeColor = Color.White,
-                BackColor = Color.FromArgb(39, 174, 96), // Warna Hijau "Flat"
-                Font = new Font("Segoe UI", 11, FontStyle.Bold),
-                Dock = DockStyle.Left,
-                Width = (card.Width - card.Padding.Horizontal - statusPanel.Padding.Horizontal - 10) / 2, // Setengah lebar
-                TextAlign = ContentAlignment.MiddleCenter
-            };
-
-            var notConnectedLabel = new Label
-            {
-                Text = $"{line.Inactive}\nNot Connected",
-                ForeColor = Color.White,
-                BackColor = Color.FromArgb(231, 76, 60), // Warna Merah "Flat"
-                Font = new Font("Segoe UI", 11, FontStyle.Bold),
-                Dock = DockStyle.Right,
-                Width = (card.Width - card.Padding.Horizontal - statusPanel.Padding.Horizontal - 10) / 2, // Setengah lebar
-                TextAlign = ContentAlignment.MiddleCenter
-            };
-
-            // Panel pemisah kecil (opsional)
-            var separator = new Panel { Dock = DockStyle.Left, Width = 10, BackColor = Color.White };
-
-            statusPanel.Controls.Add(connectedLabel);
-            statusPanel.Controls.Add(separator);
-            statusPanel.Controls.Add(notConnectedLabel);
-
-
-            // ========================================
-            // === 4. LABEL STATISTIK UTAMA ===
-            // ========================================
-            // Menggunakan string yang sama dari kode Anda
-            var statsText = $"COUNT\n{line.Count}\n\n" +
-                            $"CYCLE\n{line.Cycle}s\n\n" +
-                            $"PART/HR\n{line.PartPerHour}\n\n" +
-                            $"AVG CYCLE\n{line.AvgCycle}s\n\n" +
-                            $"DOWNTIME\n{line.Downtime} ({line.DowntimePercentage}%)\n\n" +
-                            $"UPTIME\n{line.Uptime} ({line.UptimePercentage}%)";
-
-            var statsLabel = new Label
-            {
-                Text = statsText,
-                Font = new Font("Segoe UI", 11, FontStyle.Regular), // Font Regular untuk data
-                ForeColor = Color.FromArgb(82, 82, 82), // Abu-abu gelap (bukan hitam)
-                TextAlign = ContentAlignment.MiddleCenter,
-                Dock = DockStyle.Fill,
-                Padding = new Padding(10)
-            };
-
-            // ========================================
-            // === 5. TOTAL LABEL (FOOTER KARTU) ===
-            // ========================================
-            var totalLabel = new Label
-            {
-                Text = $"{line.Total} Total Machine",
-                Dock = DockStyle.Bottom,
-                Font = new Font("Segoe UI", 12, FontStyle.Bold),
-                ForeColor = Color.FromArgb(52, 73, 94),
-                Height = 40,
-                TextAlign = ContentAlignment.MiddleCenter,
-                BackColor = Color.FromArgb(241, 243, 244) // Footer kartu yang senada
-            };
-
-            // ========================================
-            // === 6. SUSUN KONTROL PADA KARTU ===
-            // ========================================
-            card.Controls.Add(statsLabel);      // Diisi dulu (Dock.Fill)
-            card.Controls.Add(totalLabel);
-            card.Controls.Add(statusPanel);
-            card.Controls.Add(title);
-
-            return card;
+            return control;
         }
-
-        // --------------------------------------------------------------------------
-        // === MEMBERSIHKAN SUMBER DAYA ===
-        // --------------------------------------------------------------------------
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
@@ -315,36 +183,152 @@ namespace MachineMonitoringApp.Forms
             base.OnFormClosing(e);
         }
 
-        // Metode Pembantu Lainnya
-        // ... (GetInitialMachineData, GenerateSummary tetap sama) ...
-
         private List<MachineData> GetInitialMachineData()
         {
-            var initialList = new List<MachineData>();
+            var list = new List<MachineData>();
             foreach (var identity in MachineMapper.GetAllIdentities())
-            {
-                initialList.Add(new MachineData
-                {
-                    id = identity.Id,
-                    name = identity.Name,
-                    line_production = identity.Line,
-                });
-            }
-            return initialList;
+                list.Add(new MachineData { id = identity.Id, name = identity.Name, line_production = identity.Line });
+            return list;
         }
 
         private Dictionary<string, LineSummary> GenerateSummary(List<MachineData> machines)
         {
             return machines.GroupBy(m => m.line_production)
-                           .ToDictionary(
-                               g => g.Key,
-                               g => new LineSummary(
-                                   g.Key,
-                                   g.Count(m => m.nilaiA0 == 1),
-                                   g.Count(m => m.nilaiA0 == 0),
-                                   g.Count()
-                               )
-                           );
+                .ToDictionary(g => g.Key, g => new LineSummary(
+                    g.Key,
+                    g.Count(m => m.nilaiA0 == 1),
+                    g.Count(m => m.nilaiA0 == 0),
+                    g.Count()));
+        }
+
+        // Center each physical row of controls inside the FlowLayoutPanel.
+        // This method runs on the Layout event and adjusts control.Left positions
+        // so that each row's content is horizontally centered within the panel.
+        private void FlowLayoutPanel1_Layout(object sender, LayoutEventArgs e)
+        {
+            try
+            {
+                var fl = this.flowLayoutPanel1;
+                if (fl.Controls.Count == 0) return;
+
+                int availableWidth = fl.ClientSize.Width - fl.Padding.Left - fl.Padding.Right;
+
+                // collect visible controls in the order they are laid out
+                var controls = fl.Controls.Cast<Control>().Where(c => c.Visible).ToList();
+
+                // Responsive sizing: choose number of cards per row based on available width
+                const int minCardWidth = 220; // smallest acceptable card width
+                const int spacing = 16; // space to allocate between cards and at edges
+                var sample = controls.FirstOrDefault();
+                if (sample != null)
+                {
+                    int marginTotal = sample.Margin.Left + sample.Margin.Right;
+
+                    // candidate per-row counts (we prefer 3 per row visually)
+                    int[] candidates = new[] { 3, 4, 5, 2, 1 };
+                    int chosenPerRow = 1;
+                    int chosenWidth = sample.Width;
+
+                    // find the candidate that produces the smallest leftover space (available - required)
+                    // while keeping card width >= minCardWidth. This minimizes large right-side gaps.
+                    int bestPerRow = -1;
+                    int bestWidth = -1;
+                    int bestLeftover = int.MaxValue;
+
+                    foreach (var perRow in candidates)
+                    {
+                        int totalGaps = perRow + 1; // left + between + right
+                        int candidateWidth = (availableWidth - (totalGaps * spacing) - (perRow * marginTotal)) / perRow;
+                        if (candidateWidth < minCardWidth) continue;
+
+                        int required = perRow * candidateWidth + (totalGaps * spacing) + (perRow * marginTotal);
+                        int leftover = availableWidth - required; // >=0 by construction
+
+                        if (leftover >= 0 && leftover < bestLeftover)
+                        {
+                            bestLeftover = leftover;
+                            bestPerRow = perRow;
+                            bestWidth = candidateWidth;
+                        }
+                    }
+
+                    if (bestPerRow != -1)
+                    {
+                        chosenPerRow = bestPerRow;
+                        chosenWidth = bestWidth;
+                    }
+                    else
+                    {
+                        // fallback: no candidate satisfied minCardWidth — choose perRow that minimizes overflow
+                        int bestOverflow = int.MaxValue;
+                        foreach (var perRow in candidates)
+                        {
+                            int totalGaps = perRow + 1;
+                            int candidateWidth = (availableWidth - (totalGaps * spacing) - (perRow * marginTotal)) / perRow;
+                            // compute overflow if any (negative leftover)
+                            int required = perRow * candidateWidth + (totalGaps * spacing) + (perRow * marginTotal);
+                            int overflow = Math.Abs(availableWidth - required);
+                            if (overflow < bestOverflow)
+                            {
+                                bestOverflow = overflow;
+                                bestPerRow = perRow;
+                                bestWidth = Math.Max(160, candidateWidth);
+                            }
+                        }
+
+                        chosenPerRow = bestPerRow > 0 ? bestPerRow : 1;
+                        chosenWidth = bestWidth > 0 ? bestWidth : Math.Max(160, sample.Width);
+                    }
+
+                    // apply width to all cards, but do not grow above the designed card width to avoid one-per-row
+                    const int defaultCardWidth = 300; // keep in sync with LineCardControl.Designer
+                    chosenWidth = Math.Min(chosenWidth, defaultCardWidth);
+                    foreach (var c in controls)
+                    {
+                        // only set if different to avoid excessive relayouts
+                        if (c.Width != chosenWidth)
+                            c.Width = chosenWidth;
+                    }
+                }
+                var rows = new List<List<Control>>();
+
+                const int rowTolerance = 10; // px tolerance to group controls on same row
+
+                foreach (var ctrl in controls)
+                {
+                    // find existing row with similar Top
+                    var row = rows.FirstOrDefault(r => Math.Abs(r[0].Top - ctrl.Top) <= rowTolerance);
+                    if (row != null)
+                        row.Add(ctrl);
+                    else
+                        rows.Add(new List<Control> { ctrl });
+                }
+
+                foreach (var row in rows)
+                {
+                    // compute total width of this row (including margins)
+                    int rowWidth = 0;
+                    foreach (var c in row)
+                        rowWidth += c.Margin.Left + c.Width + c.Margin.Right;
+
+                    int extra = availableWidth - rowWidth;
+                    int gap = 0;
+                    if (extra > 0)
+                    {
+                        // distribute extra space evenly into (n+1) gaps (left, between items, right)
+                        gap = extra / (row.Count + 1);
+                    }
+
+                    int x = fl.Padding.Left + gap;
+                    foreach (var c in row)
+                    {
+                        // set new position (keep Y as set by FlowLayoutPanel)
+                        c.Left = x + c.Margin.Left;
+                        x += c.Margin.Left + c.Width + c.Margin.Right + gap;
+                    }
+                }
+            }
+            catch { /* ignore layout errors */ }
         }
     }
 }
